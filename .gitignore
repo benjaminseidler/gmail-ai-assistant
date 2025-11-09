@@ -1,0 +1,22 @@
+# Apps Script specific
+.clasp.json
+.claspignore
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*~
+
+# Environment files (if any API keys stored locally)
+.env
+.env.local
