@@ -20,3 +20,4 @@ Thumbs.db
 # Environment files (if any API keys stored locally)
 .env
 .env.local
+2025-11-09-claude-message-export.txt

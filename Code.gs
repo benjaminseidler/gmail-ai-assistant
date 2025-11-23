@@ -38,10 +38,11 @@ function buildMessageCard(e) {
                'Assistant ID: ' + assistantId.substring(0, 20) + '...'));
 
     statusSection.addWidget(CardService.newTextParagraph()
-      .setText('<br><b>So verwendest du das Add-on:</b><br>' +
+      .setText('<br><b>Verwendung:</b><br>' +
                '1. Öffne oder erstelle eine Antwort-Mail<br>' +
-               '2. Klicke auf "KI-Text einfügen" im Compose-Fenster<br>' +
-               '3. Der KI-generierte Text wird eingefügt'));
+               '2. Klicke auf "✨ KI-Antwort" im Compose-Fenster<br>' +
+               '3. Optional: Gib Stichpunkte im Dialog ein<br>' +
+               '4. Klicke "Generieren" und warte 10-30 Sekunden'));
 
     // Einstellungen-Button
     statusSection.addWidget(CardService.newButtonSet()
@@ -129,25 +130,61 @@ function saveSettings(e) {
 }
 
 /**
- * Fügt KI-generierten Text in offenes Compose-Fenster ein
+ * Zeigt Dialog für Stichpunkte-Eingabe
  */
 function insertAITextToCompose(e) {
+  // Zeige Dialog für optionale Stichpunkte-Eingabe
+  var card = CardService.newCardBuilder();
+  card.setHeader(CardService.newCardHeader()
+    .setTitle('KI-Antwort generieren'));
+
+  var section = CardService.newCardSection();
+
+  section.addWidget(CardService.newTextParagraph()
+    .setText('Optional: Gib Stichpunkte ein, die in die Antwort integriert werden sollen.'));
+
+  section.addWidget(CardService.newTextInput()
+    .setFieldName('userNotes')
+    .setTitle('📝 Stichpunkte (optional)')
+    .setHint('Z.B.: Termin am Freitag 14 Uhr zusagen')
+    .setMultiline(true)
+    .setValue(''));
+
+  var buttonSet = CardService.newButtonSet()
+    .addButton(CardService.newTextButton()
+      .setText('✨ Generieren')
+      .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+      .setBackgroundColor('#1967d2')
+      .setOnClickAction(CardService.newAction()
+        .setFunctionName('generateAIResponse')
+        .setParameters({
+          'subject': e.gmail ? e.gmail.subject : (e.draftMetadata ? e.draftMetadata.subject : ''),
+          'toRecipient': e.gmail ? (e.gmail.toRecipients ? e.gmail.toRecipients[0] : '') : (e.draftMetadata ? (e.draftMetadata.toRecipients ? e.draftMetadata.toRecipients[0] : '') : '')
+        })));
+
+  section.addWidget(buttonSet);
+  card.addSection(section);
+
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().pushCard(card.build()))
+    .build();
+}
+
+/**
+ * Generiert KI-Antwort mit optionalen Stichpunkten
+ */
+function generateAIResponse(e) {
   try {
     var threadId = null;
-    var subject = null;
-    var toRecipient = null;
+    var subject = e.parameters.subject || '';
+    var toRecipient = e.parameters.toRecipient || '';
+    var existingDraftContent = e.formInput.userNotes || '';
 
-    // Extrahiere verfügbare Informationen
-    if (e.gmail && e.gmail.subject) {
-      subject = e.gmail.subject;
-    } else if (e.draftMetadata && e.draftMetadata.subject) {
-      subject = e.draftMetadata.subject;
-    }
-
-    if (e.gmail && e.gmail.toRecipients && e.gmail.toRecipients.length > 0) {
-      toRecipient = e.gmail.toRecipients[0];
-    } else if (e.draftMetadata && e.draftMetadata.toRecipients && e.draftMetadata.toRecipients.length > 0) {
-      toRecipient = e.draftMetadata.toRecipients[0];
+    Logger.log('=== KI-Antwort-Generierung gestartet ===');
+    if (existingDraftContent.length > 0) {
+      Logger.log('Mit Stichpunkten: "' + existingDraftContent + '"');
+    } else {
+      Logger.log('Ohne Stichpunkte');
     }
 
     // Erstelle eindeutigen Request-Key
@@ -161,7 +198,7 @@ function insertAITextToCompose(e) {
     if (lastRequestTime) {
       var timeSince = now - parseInt(lastRequestTime);
       if (timeSince < 15000) { // 15 Sekunden Blockierung
-        Logger.log('DUPLICATE: Anfrage vor ' + timeSince + 'ms bereits gestartet - IGNORIERE');
+        Logger.log('Duplikat-Anfrage blockiert (vor ' + timeSince + 'ms bereits gestartet)');
         throw new Error('DUPLICATE_REQUEST_IGNORED');
       }
     }
@@ -232,12 +269,10 @@ function insertAITextToCompose(e) {
         var lastMessage = messages[messages.length - 1];
 
         Logger.log('Verwende Nachricht: ' + lastMessage.getId() + ' von ' + lastMessage.getFrom());
-
-        // Zeige Progress-Nachricht
         Logger.log('Generiere KI-Antwort...');
 
-        // Generiere KI-Antwort mit der letzten Nachricht
-        var aiResponse = getAIResponseForMessage(threadHistory, lastMessage.getId());
+        // Generiere KI-Antwort mit der letzten Nachricht und optionalen Entwurfs-Hinweisen
+        var aiResponse = getAIResponseForMessage(threadHistory, lastMessage.getId(), existingDraftContent);
 
         if (!aiResponse) {
           throw new Error('Keine Antwort von der KI erhalten');
@@ -326,7 +361,7 @@ function extractThreadHistory(messages) {
 /**
  * Ruft OpenAI Assistant API auf - für spezifische Nachricht
  */
-function getAIResponseForMessage(threadHistory, targetMessageId) {
+function getAIResponseForMessage(threadHistory, targetMessageId, userNotes) {
   var apiKey = getUserProperty(PROPERTY_API_KEY);
   var assistantId = getUserProperty(PROPERTY_ASSISTANT_ID);
 
@@ -363,6 +398,31 @@ function getAIResponseForMessage(threadHistory, targetMessageId) {
 
   // Füge Nachricht zu Thread hinzu
   addMessageToThread(apiKey, threadId, contextMessage);
+
+  // Füge Benutzer-Notizen als SEPARATE Message hinzu (falls vorhanden)
+  if (userNotes && userNotes.length > 0) {
+    Logger.log('Sende Stichpunkte an KI');
+
+    var instructionsMessage = '==========================================\n';
+    instructionsMessage += '⚠️ SYSTEM-ANWEISUNG - HOHE PRIORITÄT ⚠️\n';
+    instructionsMessage += '==========================================\n\n';
+    instructionsMessage += 'KONTEXT: Der Benutzer hat Stichpunkte/Notizen geschrieben, die in die E-Mail-Antwort EINGEBAUT werden sollen.\n\n';
+    instructionsMessage += 'DIE STICHPUNKTE LAUTEN:\n';
+    instructionsMessage += '---BEGIN STICHPUNKTE---\n';
+    instructionsMessage += userNotes + '\n';
+    instructionsMessage += '---END STICHPUNKTE---\n\n';
+    instructionsMessage += '🚫 NICHT TUN: Diese Stichpunkte NICHT als Frage oder Nachricht behandeln!\n';
+    instructionsMessage += '🚫 NICHT TUN: NICHT mit "Vielen Dank für Ihre Nachricht" antworten!\n';
+    instructionsMessage += '🚫 NICHT TUN: NICHT auf die Stichpunkte eingehen als wären sie eine Anfrage!\n\n';
+    instructionsMessage += '✅ TU DIES: Schreibe eine normale Antwort auf die ursprüngliche E-Mail\n';
+    instructionsMessage += '✅ TU DIES: Baue dabei die Stichpunkte als INHALT ein\n';
+    instructionsMessage += '✅ TU DIES: Die Stichpunkte sind ANWEISUNGEN für den INHALT der Antwort\n\n';
+    instructionsMessage += 'Beispiel: Wenn Stichpunkt ist "Termin zusagen, Freitag 14 Uhr"\n';
+    instructionsMessage += 'Dann schreibe: "...ich bestätige gerne den Termin am Freitag um 14 Uhr..."\n';
+    instructionsMessage += 'NICHT: "Vielen Dank für die Information zum Termin am Freitag."';
+
+    addMessageToThread(apiKey, threadId, instructionsMessage);
+  }
 
   // Starte Assistant Run
   var run = runAssistant(apiKey, threadId, assistantId);
