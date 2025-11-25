@@ -180,6 +180,7 @@ function insertAITextToCompose(e) {
       .setBackgroundColor('#1967d2')
       .setOnClickAction(CardService.newAction()
         .setFunctionName('generateAIResponse')
+        .setLoadIndicator(CardService.LoadIndicator.SPINNER)
         .setParameters({
           'subject': e.gmail ? e.gmail.subject : (e.draftMetadata ? e.draftMetadata.subject : ''),
           'toRecipient': e.gmail ? (e.gmail.toRecipients ? e.gmail.toRecipients[0] : '') : (e.draftMetadata ? (e.draftMetadata.toRecipients ? e.draftMetadata.toRecipients[0] : '') : '')
