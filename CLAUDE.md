@@ -121,7 +121,8 @@ Before the add-on functions, users must configure:
    - Create Assistant at [platform.openai.com/assistants](https://platform.openai.com/assistants)
    - Recommended model: gpt-4o or gpt-4-turbo (can be overridden by Model Type setting)
    - See `prompt.txt` for recommended instructions
-   - Instructions should specify: German language, professional tone, no subject line
+   - Instructions should specify: German language, professional tone, no subject line, mandatory greeting and closing
+   - **CRITICAL**: All generated emails MUST include context-appropriate greeting (e.g., "Guten Tag...") and closing (e.g., "Viele Grüße", "Mit freundlichen Grüßen")
 
 3. **Model Type** (optional, default: 'nano')
    - Stored in UserProperties under key `OPENAI_MODEL_TYPE`
@@ -150,6 +151,24 @@ Required scopes (defined in appsscript.json:8-14):
 **Text inserted twice**: Should not happen due to 3-tier protection, but if it does, indicates all three protection layers failed - check logs for errors
 
 **AI responds TO user notes instead of integrating them**: Check that `runAssistant()` properly passes `additional_instructions` parameter - notes must NOT be added as separate thread messages
+
+## Email Format Requirements
+
+**Greeting and Closing (MANDATORY)**:
+All generated emails must follow this structure:
+1. **Greeting**: Context-appropriate salutation based on thread history and sender
+   - Formal: "Sehr geehrte/r Frau/Herr [Name],"
+   - Neutral-professional: "Guten Tag Frau/Herr [Name]," (default)
+   - Informal: "Hallo [Vorname]," (when using "Du" form)
+2. **Body**: Main email content
+3. **Closing**: Matching sign-off followed by sender's name on new line
+   - Formal: "Mit freundlichen Grüßen" + [newline] + [Name]
+   - Neutral: "Viele Grüße" + [newline] + [Name] (default)
+   - Informal: "Beste Grüße" / "Liebe Grüße" + [newline] + [Name]
+   - **Name extraction**: AI extracts sender's name from thread history (how it was used in previous emails)
+   - For new emails: AI uses contextually appropriate name
+
+The AI analyzes thread history for formality level (Du/Sie) and sender name, adapting automatically.
 
 ## Key Constraints
 

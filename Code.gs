@@ -503,9 +503,11 @@ function getAIResponseForMessage(threadHistory, targetMessageId, userNotes) {
   }
 
   if (targetIndex > 0) {
-    contextMessage += '\n\nBitte erstelle eine professionelle Antwort auf E-Mail ' + targetIndex + ' (markiert mit [ZU BEANTWORTEN]).';
+    contextMessage += '\n\nBitte erstelle eine professionelle Antwort auf E-Mail ' + targetIndex + ' (markiert mit [ZU BEANTWORTEN]).\n';
+    contextMessage += 'WICHTIG: Die Antwort MUSS mit einer passenden Begrüßung beginnen und mit einer Grußformel + Name enden.';
   } else {
-    contextMessage += '\n\nBitte erstelle eine professionelle Antwort auf die letzte E-Mail im Thread.';
+    contextMessage += '\n\nBitte erstelle eine professionelle Antwort auf die letzte E-Mail im Thread.\n';
+    contextMessage += 'WICHTIG: Die Antwort MUSS mit einer passenden Begrüßung beginnen und mit einer Grußformel + Name enden.';
   }
 
   // Füge Nachricht zu Thread hinzu
@@ -524,7 +526,14 @@ function getAIResponseForMessage(threadHistory, targetMessageId, userNotes) {
     additionalInstructions += '- Dies sind ANWEISUNGEN für den INHALT deiner Antwort\n';
     additionalInstructions += '- Baue diese Punkte natürlich in deine Antwort auf die ursprüngliche E-Mail ein\n';
     additionalInstructions += '- Behandle sie als würde der Verfasser der Antwort diese Punkte erwähnen/bestätigen wollen\n\n';
-    additionalInstructions += 'Beispiel: "Termin am Freitag 14 Uhr zusagen" → "...gerne bestätige ich den Termin am Freitag um 14 Uhr..."';
+    additionalInstructions += 'Beispiel: "Termin am Freitag 14 Uhr zusagen" → "...gerne bestätige ich den Termin am Freitag um 14 Uhr..."\n\n';
+    additionalInstructions += 'FORMAT-ANFORDERUNG:\n';
+    additionalInstructions += '- Beginne IMMER mit passender Begrüßung (z.B. "Guten Tag Frau/Herr [Name]," oder "Hallo [Vorname],")\n';
+    additionalInstructions += '- Schließe IMMER mit passender Grußformel ab (z.B. "Viele Grüße" oder "Mit freundlichen Grüßen")\n';
+    additionalInstructions += '- Nach der Grußformel folgt in NEUER ZEILE der Name des Absenders\n';
+    additionalInstructions += '- Name aus Thread-Historie extrahieren (wie in früheren Mails verwendet)\n';
+    additionalInstructions += '- Analysiere die Thread-Historie für die richtige Formalitätsstufe (Du/Sie)\n';
+    additionalInstructions += '- Format: [Grußformel]\\n[Name]';
   }
 
   var run = runAssistant(apiKey, threadId, assistantId, additionalInstructions);
@@ -576,7 +585,8 @@ function generateNewEmailContent(recipient, subject, userNotes) {
   if (subject && subject.trim().length > 0) {
     contextMessage += 'Betreff der E-Mail: ' + subject + '\n';
   }
-  contextMessage += '\nBitte erstelle eine vollständige, professionelle E-Mail basierend auf den Inhaltspunkten des Benutzers.';
+  contextMessage += '\nBitte erstelle eine vollständige, professionelle E-Mail basierend auf den Inhaltspunkten des Benutzers.\n';
+  contextMessage += 'WICHTIG: Die E-Mail MUSS mit einer passenden Begrüßung beginnen und mit einer Grußformel + Name enden.';
 
   // Füge Nachricht zu Thread hinzu
   addMessageToThread(apiKey, threadId, contextMessage);
@@ -611,8 +621,14 @@ function generateNewEmailContent(recipient, subject, userNotes) {
   additionalInstructions += '  * Angemessener Begrüßung (z.B. "Sehr geehrte/r ...", "Hallo ...")\n';
   additionalInstructions += '  * Hauptteil basierend auf Betreff/Inhaltspunkten\n';
   additionalInstructions += '  * Professioneller Grußformel (z.B. "Mit freundlichen Grüßen")\n';
+  additionalInstructions += '  * Name des Absenders in NEUER ZEILE nach der Grußformel\n';
   additionalInstructions += '- Verwende einen professionellen, angemessenen Ton\n';
-  additionalInstructions += '- KEIN Betreff in der E-Mail selbst (nur im E-Mail-Feld)\n\n';
+  additionalInstructions += '- KEIN Betreff in der E-Mail selbst (nur im E-Mail-Feld)\n';
+  additionalInstructions += '- PFLICHT: Beginne mit passender Begrüßung und schließe mit Grußformel + Name\n';
+  additionalInstructions += '  * Analysiere Empfänger-Adresse für Formalität (z.B. info@firma.de → formell)\n';
+  additionalInstructions += '  * Bei Unsicherheit: "Guten Tag," und "Viele Grüße" (neutral-professionell)\n';
+  additionalInstructions += '  * Verwende einen passenden Namen (formell/professionell passend zum Kontext)\n';
+  additionalInstructions += '  * Format: [Begrüßung] + [Leerzeile] + [Hauptteil] + [Leerzeile] + [Grußformel] + [Leerzeile] + [Name]\n\n';
   additionalInstructions += 'Beispiele:\n';
   additionalInstructions += '1) Betreff: "Urlaubsantrag Juli" → Erstelle Urlaubsantrag für Juli\n';
   additionalInstructions += '2) Betreff: "Meeting-Anfrage" + Notizen: "Termin nächste Woche" → Kombiniere beides\n';
