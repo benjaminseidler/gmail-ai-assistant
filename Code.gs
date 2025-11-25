@@ -6,6 +6,7 @@
 // Properties Keys
 var PROPERTY_API_KEY = 'OPENAI_API_KEY';
 var PROPERTY_ASSISTANT_ID = 'OPENAI_ASSISTANT_ID';
+var PROPERTY_MODEL_TYPE = 'OPENAI_MODEL_TYPE'; // 'nano' oder 'mini'
 
 /**
  * Erstellt die Haupt-Card beim Öffnen einer E-Mail
@@ -13,6 +14,7 @@ var PROPERTY_ASSISTANT_ID = 'OPENAI_ASSISTANT_ID';
 function buildMessageCard(e) {
   var apiKey = getUserProperty(PROPERTY_API_KEY);
   var assistantId = getUserProperty(PROPERTY_ASSISTANT_ID);
+  var modelType = getUserProperty(PROPERTY_MODEL_TYPE) || 'nano';
 
   var card = CardService.newCardBuilder();
   card.setHeader(CardService.newCardHeader()
@@ -33,16 +35,20 @@ function buildMessageCard(e) {
         .setOnClickAction(CardService.newAction()
           .setFunctionName('showSettings'))));
   } else {
+    var modelLabel = (modelType === 'nano') ? '⚡ Ultra-Schnell (gpt-4.1-nano)' : '🎯 Schnell (gpt-4.1-mini)';
+    var timeEstimate = (modelType === 'nano') ? '2-5 Sekunden' : '3-8 Sekunden';
+
     statusSection.addWidget(CardService.newTextParagraph()
       .setText('<font color="#34A853">✓ Konfiguriert</font><br>' +
-               'Assistant ID: ' + assistantId.substring(0, 20) + '...'));
+               'Assistant ID: ' + assistantId.substring(0, 20) + '...<br>' +
+               'Modell: ' + modelLabel));
 
     statusSection.addWidget(CardService.newTextParagraph()
       .setText('<br><b>Verwendung:</b><br>' +
                '1. Öffne oder erstelle eine Antwort-Mail<br>' +
                '2. Klicke auf "✨ KI-Antwort" im Compose-Fenster<br>' +
                '3. Optional: Gib Stichpunkte im Dialog ein<br>' +
-               '4. Klicke "Generieren" und warte 10-30 Sekunden'));
+               '4. Klicke "Generieren" und warte ' + timeEstimate));
 
     // Einstellungen-Button
     statusSection.addWidget(CardService.newButtonSet()
@@ -63,6 +69,7 @@ function buildMessageCard(e) {
 function showSettings(e) {
   var apiKey = getUserProperty(PROPERTY_API_KEY) || '';
   var assistantId = getUserProperty(PROPERTY_ASSISTANT_ID) || '';
+  var modelType = getUserProperty(PROPERTY_MODEL_TYPE) || 'nano';
 
   var card = CardService.newCardBuilder();
   card.setHeader(CardService.newCardHeader()
@@ -86,8 +93,20 @@ function showSettings(e) {
     .setValue(assistantId)
     .setHint('asst_...'));
 
+  // Model Type Selection
+  section.addWidget(CardService.newDecoratedText()
+    .setTopLabel('KI-Modell')
+    .setText('Wähle die Geschwindigkeit'));
+
+  section.addWidget(CardService.newSelectionInput()
+    .setType(CardService.SelectionInputType.RADIO_BUTTON)
+    .setFieldName('modelType')
+    .addItem('⚡ Ultra-Schnell (gpt-4.1-nano) - 2-5s', 'nano', modelType === 'nano')
+    .addItem('🎯 Schnell (gpt-4.1-mini) - 3-8s', 'mini', modelType === 'mini'));
+
   section.addWidget(CardService.newTextParagraph()
-    .setText('<font color="#5F6368"><i>Deine Zugangsdaten werden sicher in deinem Google Account gespeichert.</i></font>'));
+    .setText('<font color="#5F6368"><i>Deine Zugangsdaten werden sicher in deinem Google Account gespeichert.<br><br>' +
+             'Hinweis: Das gewählte Modell überschreibt die Konfiguration in deinem OpenAI Assistant.</i></font>'));
 
   var buttonSet = CardService.newButtonSet()
     .addButton(CardService.newTextButton()
@@ -110,6 +129,7 @@ function showSettings(e) {
 function saveSettings(e) {
   var apiKey = e.formInput.apiKey;
   var assistantId = e.formInput.assistantId;
+  var modelType = e.formInput.modelType || 'nano';
 
   // Nur aktualisieren wenn nicht maskiert
   if (apiKey && !apiKey.startsWith('••••')) {
@@ -120,8 +140,11 @@ function saveSettings(e) {
     setUserProperty(PROPERTY_ASSISTANT_ID, assistantId);
   }
 
+  setUserProperty(PROPERTY_MODEL_TYPE, modelType);
+
+  var modelLabel = (modelType === 'nano') ? '⚡ Ultra-Schnell' : '🎯 Schnell';
   var notification = CardService.newNotification()
-    .setText('✓ Einstellungen gespeichert');
+    .setText('✓ Einstellungen gespeichert (' + modelLabel + ')');
 
   return CardService.newActionResponseBuilder()
     .setNotification(notification)
@@ -340,20 +363,27 @@ function generateAIResponse(e) {
 
 /**
  * Extrahiert Thread-Historie für KI-Kontext
+ * Optimiert: Nur die letzten 3 Nachrichten für bessere Performance
  */
 function extractThreadHistory(messages) {
   var history = [];
 
-  for (var i = 0; i < messages.length; i++) {
+  // Performance-Optimierung: Nur letzte 3 Nachrichten verwenden
+  // Reduziert Token-Count und API-Latenz erheblich
+  var startIndex = Math.max(0, messages.length - 3);
+
+  for (var i = startIndex; i < messages.length; i++) {
     var msg = messages[i];
     history.push({
       id: msg.getId(),
       from: msg.getFrom(),
       date: msg.getDate().toISOString(),
       subject: msg.getSubject(),
-      body: msg.getPlainBody().substring(0, 2000) // Limitiere Länge
+      body: msg.getPlainBody().substring(0, 1500) // Reduziert von 2000 auf 1500
     });
   }
+
+  Logger.log('Thread-Historie: ' + history.length + ' Nachrichten (von ' + messages.length + ' gesamt)');
 
   return history;
 }
@@ -488,6 +518,21 @@ function runAssistant(apiKey, threadId, assistantId, additionalInstructions) {
     payload.additional_instructions = additionalInstructions;
   }
 
+  // Performance-Optimierung: Model Override
+  var modelType = getUserProperty(PROPERTY_MODEL_TYPE) || 'nano';
+  if (modelType === 'nano') {
+    // Ultra-schnelles Modell für maximale Performance
+    payload.model = 'gpt-4.1-nano';
+    Logger.log('Verwende ultra-schnelles Modell: gpt-4.1-nano');
+  } else if (modelType === 'mini') {
+    // Schnelles Modell mit guter Balance
+    payload.model = 'gpt-4.1-mini';
+    Logger.log('Verwende schnelles Modell: gpt-4.1-mini');
+  } else {
+    // Fallback: Verwende Standard aus Assistant
+    Logger.log('Verwende Standard-Modell aus Assistant-Konfiguration');
+  }
+
   var options = {
     method: 'post',
     headers: {
@@ -515,11 +560,18 @@ function waitForCompletion(apiKey, threadId, runId, maxWaitSeconds) {
   var startTime = new Date().getTime();
   var maxWaitMs = maxWaitSeconds * 1000;
 
+  // Adaptive Polling: Start schnell, dann langsamer
+  // Spart API-Calls und reduziert Latenz bei schnellen Antworten
+  var pollIntervals = [500, 500, 1000, 1000, 1500, 2000]; // in ms
+  var pollCount = 0;
+
   while (true) {
     var response = UrlFetchApp.fetch(url, options);
     var run = JSON.parse(response.getContentText());
 
     if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+      var duration = ((new Date().getTime() - startTime) / 1000).toFixed(1);
+      Logger.log('Assistant fertig nach ' + duration + 's (Status: ' + run.status + ')');
       return run;
     }
 
@@ -527,7 +579,13 @@ function waitForCompletion(apiKey, threadId, runId, maxWaitSeconds) {
       throw new Error('Timeout: Assistant hat zu lange gebraucht');
     }
 
-    Utilities.sleep(1000); // Warte 1 Sekunde
+    // Adaptives Polling: Verwende schnellere Intervalle am Anfang
+    var interval = pollCount < pollIntervals.length
+      ? pollIntervals[pollCount]
+      : 2000; // Default: 2 Sekunden
+
+    Utilities.sleep(interval);
+    pollCount++;
   }
 }
 
