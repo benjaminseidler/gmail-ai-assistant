@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Google Apps Script project that implements a Gmail Add-on for AI-powered email responses using OpenAI's Assistant API. The add-on adds a "✨ KI-Antwort" button directly in Gmail's compose toolbar that inserts AI-generated reply text based on email thread context.
+This is a Google Apps Script project that implements a Gmail Add-on for AI-powered email responses using OpenAI's Assistant API. The add-on adds a "✨ KI-Antwort" button directly in Gmail's compose toolbar that inserts AI-generated reply text based on email thread context. Users can optionally provide bullet points that are integrated into the AI response.
 
 ## Technology Stack
 
@@ -25,10 +25,12 @@ This is a Google Apps Script project that implements a Gmail Add-on for AI-power
    - Settings dialog for OpenAI API key and Assistant ID configuration
    - Status display showing configuration state
 
-2. **Compose Action** (`insertAITextToCompose`)
+2. **Compose Action** (`insertAITextToCompose`, `generateAIResponse`)
    - Main entry point triggered by "✨ KI-Antwort" button in compose toolbar
+   - Shows dialog for optional user notes/bullet points input
    - Implements 3-tier duplicate request prevention system
    - Extracts thread context and generates AI response
+   - User notes are passed as `additional_instructions` to OpenAI Assistant (not as thread messages)
    - Inserts generated text into active compose window
 
 3. **Thread Processing** (`extractThreadHistory`)
@@ -39,9 +41,15 @@ This is a Google Apps Script project that implements a Gmail Add-on for AI-power
 4. **OpenAI Integration** (helper functions)
    - `createOpenAIThread`: Creates OpenAI conversation thread
    - `addMessageToThread`: Sends email context to OpenAI
-   - `runAssistant`: Executes configured OpenAI Assistant
+   - `runAssistant`: Executes configured OpenAI Assistant with optional `additional_instructions` parameter
    - `waitForCompletion`: Polls for completion with timeout (30s)
    - `getThreadMessages`: Retrieves AI-generated response
+
+5. **User Notes Feature** (`generateAIResponse`)
+   - Optional bullet points/notes can be provided via dialog
+   - Notes are passed as `additional_instructions` parameter to OpenAI API (NOT as thread messages)
+   - This ensures notes are treated as content directives, not as conversation messages
+   - AI integrates notes naturally into the email response
 
 ### Critical Systems
 
@@ -99,7 +107,8 @@ Before the add-on functions, users must configure:
    - Stored in UserProperties under key `OPENAI_ASSISTANT_ID`
    - Create Assistant at [platform.openai.com/assistants](https://platform.openai.com/assistants)
    - Recommended model: gpt-4o or gpt-4-turbo
-   - Instructions should specify: German language, professional tone, no subject line, no questions
+   - See `prompt.txt` for recommended instructions
+   - Instructions should specify: German language, professional tone, no subject line
 
 ## OAuth Scopes
 
@@ -120,6 +129,8 @@ Required scopes (defined in appsscript.json:8-14):
 **"Timeout: Assistant hat zu lange gebraucht"**: OpenAI Assistant took >30 seconds - consider using faster model or simplifying instructions
 
 **Text inserted twice**: Should not happen due to 3-tier protection, but if it does, indicates all three protection layers failed - check logs for errors
+
+**AI responds TO user notes instead of integrating them**: Check that `runAssistant()` properly passes `additional_instructions` parameter - notes must NOT be added as separate thread messages
 
 ## Key Constraints
 

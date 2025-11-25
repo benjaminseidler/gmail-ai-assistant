@@ -399,33 +399,23 @@ function getAIResponseForMessage(threadHistory, targetMessageId, userNotes) {
   // Füge Nachricht zu Thread hinzu
   addMessageToThread(apiKey, threadId, contextMessage);
 
-  // Füge Benutzer-Notizen als SEPARATE Message hinzu (falls vorhanden)
+  // Starte Assistant Run mit optionalen Stichpunkten als additional_instructions
+  var additionalInstructions = null;
   if (userNotes && userNotes.length > 0) {
-    Logger.log('Sende Stichpunkte an KI');
+    Logger.log('Sende Stichpunkte als additional_instructions an KI');
 
-    var instructionsMessage = '==========================================\n';
-    instructionsMessage += '⚠️ SYSTEM-ANWEISUNG - HOHE PRIORITÄT ⚠️\n';
-    instructionsMessage += '==========================================\n\n';
-    instructionsMessage += 'KONTEXT: Der Benutzer hat Stichpunkte/Notizen geschrieben, die in die E-Mail-Antwort EINGEBAUT werden sollen.\n\n';
-    instructionsMessage += 'DIE STICHPUNKTE LAUTEN:\n';
-    instructionsMessage += '---BEGIN STICHPUNKTE---\n';
-    instructionsMessage += userNotes + '\n';
-    instructionsMessage += '---END STICHPUNKTE---\n\n';
-    instructionsMessage += '🚫 NICHT TUN: Diese Stichpunkte NICHT als Frage oder Nachricht behandeln!\n';
-    instructionsMessage += '🚫 NICHT TUN: NICHT mit "Vielen Dank für Ihre Nachricht" antworten!\n';
-    instructionsMessage += '🚫 NICHT TUN: NICHT auf die Stichpunkte eingehen als wären sie eine Anfrage!\n\n';
-    instructionsMessage += '✅ TU DIES: Schreibe eine normale Antwort auf die ursprüngliche E-Mail\n';
-    instructionsMessage += '✅ TU DIES: Baue dabei die Stichpunkte als INHALT ein\n';
-    instructionsMessage += '✅ TU DIES: Die Stichpunkte sind ANWEISUNGEN für den INHALT der Antwort\n\n';
-    instructionsMessage += 'Beispiel: Wenn Stichpunkt ist "Termin zusagen, Freitag 14 Uhr"\n';
-    instructionsMessage += 'Dann schreibe: "...ich bestätige gerne den Termin am Freitag um 14 Uhr..."\n';
-    instructionsMessage += 'NICHT: "Vielen Dank für die Information zum Termin am Freitag."';
-
-    addMessageToThread(apiKey, threadId, instructionsMessage);
+    additionalInstructions = 'WICHTIGE ANWEISUNGEN FÜR DEN INHALT DER ANTWORT:\n\n';
+    additionalInstructions += 'Der Benutzer möchte, dass die folgende Information in die E-Mail-Antwort eingebaut wird:\n\n';
+    additionalInstructions += userNotes + '\n\n';
+    additionalInstructions += 'WICHTIG:\n';
+    additionalInstructions += '- Dies sind KEINE zusätzlichen Fragen oder Nachrichten\n';
+    additionalInstructions += '- Dies sind ANWEISUNGEN für den INHALT deiner Antwort\n';
+    additionalInstructions += '- Baue diese Punkte natürlich in deine Antwort auf die ursprüngliche E-Mail ein\n';
+    additionalInstructions += '- Behandle sie als würde der Verfasser der Antwort diese Punkte erwähnen/bestätigen wollen\n\n';
+    additionalInstructions += 'Beispiel: "Termin am Freitag 14 Uhr zusagen" → "...gerne bestätige ich den Termin am Freitag um 14 Uhr..."';
   }
 
-  // Starte Assistant Run
-  var run = runAssistant(apiKey, threadId, assistantId);
+  var run = runAssistant(apiKey, threadId, assistantId, additionalInstructions);
 
   // Warte auf Completion (mit Timeout)
   var runResult = waitForCompletion(apiKey, threadId, run.id, 30);
@@ -486,8 +476,18 @@ function addMessageToThread(apiKey, threadId, content) {
   return JSON.parse(response.getContentText());
 }
 
-function runAssistant(apiKey, threadId, assistantId) {
+function runAssistant(apiKey, threadId, assistantId, additionalInstructions) {
   var url = 'https://api.openai.com/v1/threads/' + threadId + '/runs';
+
+  var payload = {
+    assistant_id: assistantId
+  };
+
+  // Füge additional_instructions hinzu, falls vorhanden
+  if (additionalInstructions) {
+    payload.additional_instructions = additionalInstructions;
+  }
+
   var options = {
     method: 'post',
     headers: {
@@ -495,9 +495,7 @@ function runAssistant(apiKey, threadId, assistantId) {
       'Content-Type': 'application/json',
       'OpenAI-Beta': 'assistants=v2'
     },
-    payload: JSON.stringify({
-      assistant_id: assistantId
-    })
+    payload: JSON.stringify(payload)
   };
 
   var response = UrlFetchApp.fetch(url, options);
