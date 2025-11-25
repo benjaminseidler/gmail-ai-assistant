@@ -154,9 +154,11 @@ function saveSettings(e) {
 
 /**
  * Zeigt Dialog für Stichpunkte-Eingabe
+ * Optimiert: Lädt Metadaten erst beim Klick auf "Generieren" (Lazy Loading)
  */
 function insertAITextToCompose(e) {
-  // Zeige Dialog für optionale Stichpunkte-Eingabe
+  // Zeige Dialog sofort - OHNE Metadaten zu extrahieren
+  // Performance-Optimierung: Dialog öffnet sich instant ohne Gmail API Calls
   var card = CardService.newCardBuilder();
   card.setHeader(CardService.newCardHeader()
     .setTitle('KI-Antwort generieren'));
@@ -180,11 +182,8 @@ function insertAITextToCompose(e) {
       .setBackgroundColor('#1967d2')
       .setOnClickAction(CardService.newAction()
         .setFunctionName('generateAIResponse')
-        .setLoadIndicator(CardService.LoadIndicator.SPINNER)
-        .setParameters({
-          'subject': e.gmail ? e.gmail.subject : (e.draftMetadata ? e.draftMetadata.subject : ''),
-          'toRecipient': e.gmail ? (e.gmail.toRecipients ? e.gmail.toRecipients[0] : '') : (e.draftMetadata ? (e.draftMetadata.toRecipients ? e.draftMetadata.toRecipients[0] : '') : '')
-        })));
+        .setLoadIndicator(CardService.LoadIndicator.SPINNER)));
+        // KEINE Parameter mehr - Metadaten werden in generateAIResponse() aus Event geladen
 
   section.addWidget(buttonSet);
   card.addSection(section);
@@ -196,15 +195,35 @@ function insertAITextToCompose(e) {
 
 /**
  * Generiert KI-Antwort mit optionalen Stichpunkten
+ * Optimiert: Extrahiert Metadaten lazy aus Event-Objekt
  */
 function generateAIResponse(e) {
   try {
     var threadId = null;
-    var subject = e.parameters.subject || '';
-    var toRecipient = e.parameters.toRecipient || '';
+
+    // Performance-Optimierung: Lade Metadaten erst jetzt (nicht beim Dialog-Öffnen)
+    var subject = '';
+    var toRecipient = '';
+
+    // Versuche Subject zu extrahieren
+    if (e.gmail && e.gmail.subject) {
+      subject = e.gmail.subject;
+    } else if (e.draftMetadata && e.draftMetadata.subject) {
+      subject = e.draftMetadata.subject;
+    }
+
+    // Versuche Empfänger zu extrahieren
+    if (e.gmail && e.gmail.toRecipients && e.gmail.toRecipients.length > 0) {
+      toRecipient = e.gmail.toRecipients[0];
+    } else if (e.draftMetadata && e.draftMetadata.toRecipients && e.draftMetadata.toRecipients.length > 0) {
+      toRecipient = e.draftMetadata.toRecipients[0];
+    }
+
     var existingDraftContent = e.formInput.userNotes || '';
 
     Logger.log('=== KI-Antwort-Generierung gestartet ===');
+    Logger.log('Subject: ' + subject);
+    Logger.log('To: ' + toRecipient);
     if (existingDraftContent.length > 0) {
       Logger.log('Mit Stichpunkten: "' + existingDraftContent + '"');
     } else {
