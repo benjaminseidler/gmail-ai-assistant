@@ -45,9 +45,9 @@ function buildMessageCard(e) {
 
     statusSection.addWidget(CardService.newTextParagraph()
       .setText('<br><b>Verwendung:</b><br>' +
-               '1. Öffne oder erstelle eine Antwort-Mail<br>' +
+               '1. Öffne oder erstelle eine neue/Antwort-Mail<br>' +
                '2. Klicke auf "✨ KI-Antwort" im Compose-Fenster<br>' +
-               '3. Optional: Gib Stichpunkte im Dialog ein<br>' +
+               '3. Gib Stichpunkte ein (<strong>Pflicht für neue E-Mails</strong>)<br>' +
                '4. Klicke "Generieren" und warte ' + timeEstimate));
 
     // Einstellungen-Button
@@ -166,7 +166,7 @@ function insertAITextToCompose(e) {
   var section = CardService.newCardSection();
 
   section.addWidget(CardService.newTextParagraph()
-    .setText('Optional: Gib Stichpunkte ein, die in die Antwort integriert werden sollen.'));
+    .setText('Gib Stichpunkte ein, die in die E-Mail integriert werden sollen. <strong>(Pflicht für neue E-Mails, optional für Antworten)</strong>'));
 
   section.addWidget(CardService.newTextInput()
     .setFieldName('userNotes')
@@ -275,7 +275,9 @@ function generateAIResponse(e) {
       // Markiere Anfrage als verarbeitet
       userProps.setProperty(requestKey, now.toString());
 
-      // Versuche Thread über Subject und Empfänger zu finden
+      var aiResponse = null;
+
+      // Versuche Thread über Subject und Empfänger zu finden (nur wenn beide vorhanden)
       if (subject && toRecipient) {
         // Entferne "Re: " vom Subject für die Suche
         var cleanSubject = subject.replace(/^Re:\s*/i, '').trim();
@@ -287,56 +289,94 @@ function generateAIResponse(e) {
         var threads = GmailApp.search(searchQuery, 0, 5);
 
         if (threads.length > 0) {
-          // Nimm den neuesten Thread
+          // ANTWORT-MODUS: Thread gefunden
           threadId = threads[0].getId();
           Logger.log('Thread gefunden: ' + threadId);
+
+          // Lade Thread-Historie
+          var thread = GmailApp.getThreadById(threadId);
+          var messages = thread.getMessages();
+
+          if (messages.length === 0) {
+            throw new Error('Thread enthält keine Nachrichten');
+          }
+
+          var threadHistory = extractThreadHistory(messages);
+
+          // Verwende die letzte Nachricht im Thread
+          var lastMessage = messages[messages.length - 1];
+
+          Logger.log('Verwende Nachricht: ' + lastMessage.getId() + ' von ' + lastMessage.getFrom());
+          Logger.log('Generiere KI-Antwort...');
+
+          // Generiere KI-Antwort mit der letzten Nachricht und optionalen Entwurfs-Hinweisen
+          aiResponse = getAIResponseForMessage(threadHistory, lastMessage.getId(), existingDraftContent);
+
+          if (!aiResponse) {
+            throw new Error('Keine Antwort von der KI erhalten');
+          }
+
         } else {
-          throw new Error('Kein passender E-Mail-Thread gefunden für: ' + cleanSubject);
+          // NEUE E-MAIL MODUS: Kein Thread gefunden
+          Logger.log('=== NEUE E-MAIL ERKANNT (kein Thread gefunden) ===');
+          Logger.log('Empfänger: ' + toRecipient);
+          Logger.log('Betreff: ' + subject);
+          Logger.log('Stichpunkte: ' + existingDraftContent);
+
+          // Validierung: Entweder Stichpunkte ODER Betreff muss vorhanden sein
+          var hasNotes = existingDraftContent && existingDraftContent.trim().length > 0;
+          var hasSubject = subject && subject.trim().length > 0;
+
+          if (!hasNotes && !hasSubject) {
+            throw new Error('MISSING_CONTENT_NEW_EMAIL');
+          }
+
+          // Generiere neue E-Mail ohne Thread-Historie
+          aiResponse = generateNewEmailContent(toRecipient, subject, existingDraftContent);
+
+          if (!aiResponse) {
+            throw new Error('Keine Antwort von der KI erhalten');
+          }
         }
+
       } else {
-        throw new Error('Subject oder Empfänger nicht verfügbar. Subject: ' + subject + ', To: ' + toRecipient);
-      }
+        // NEUE E-MAIL MODUS: Subject oder Empfänger fehlt - überspringe Thread-Suche
+        Logger.log('=== NEUE E-MAIL ERKANNT (Subject/Empfänger fehlt) ===');
+        Logger.log('Empfänger: ' + (toRecipient || '(leer)'));
+        Logger.log('Betreff: ' + (subject || '(leer)'));
+        Logger.log('Stichpunkte: ' + existingDraftContent);
 
-      if (threadId) {
-        // Lade Thread-Historie
-        var thread = GmailApp.getThreadById(threadId);
-        var messages = thread.getMessages();
+        // Validierung: Entweder Stichpunkte ODER Betreff muss vorhanden sein
+        var hasNotes = existingDraftContent && existingDraftContent.trim().length > 0;
+        var hasSubject = subject && subject.trim().length > 0;
 
-        if (messages.length === 0) {
-          throw new Error('Thread enthält keine Nachrichten');
+        if (!hasNotes && !hasSubject) {
+          throw new Error('MISSING_CONTENT_NEW_EMAIL');
         }
 
-        var threadHistory = extractThreadHistory(messages);
-
-        // Verwende die letzte Nachricht im Thread
-        var lastMessage = messages[messages.length - 1];
-
-        Logger.log('Verwende Nachricht: ' + lastMessage.getId() + ' von ' + lastMessage.getFrom());
-        Logger.log('Generiere KI-Antwort...');
-
-        // Generiere KI-Antwort mit der letzten Nachricht und optionalen Entwurfs-Hinweisen
-        var aiResponse = getAIResponseForMessage(threadHistory, lastMessage.getId(), existingDraftContent);
+        // Generiere neue E-Mail ohne Thread-Historie
+        aiResponse = generateNewEmailContent(toRecipient, subject, existingDraftContent);
 
         if (!aiResponse) {
           throw new Error('Keine Antwort von der KI erhalten');
         }
-
-        // Konvertiere Zeilenumbrüche für HTML
-        var htmlResponse = aiResponse.replace(/\n/g, '<br>');
-
-        // Füge Text in Compose-Dialog ein
-        var updateDraftAction = CardService.newUpdateDraftActionResponseBuilder()
-          .setUpdateDraftBodyAction(CardService.newUpdateDraftBodyAction()
-            .addUpdateContent(htmlResponse, CardService.ContentType.MUTABLE_HTML)
-            .setUpdateType(CardService.UpdateDraftBodyType.IN_PLACE_INSERT))
-          .build();
-
-        // Gebe Lock frei
-        lock.releaseLock();
-
-        Logger.log('KI-Text erfolgreich eingefügt');
-        return updateDraftAction;
       }
+
+      // Gemeinsamer Code für alle Modi: Konvertiere und füge ein
+      var htmlResponse = aiResponse.replace(/\n/g, '<br>');
+
+      // Füge Text in Compose-Dialog ein
+      var updateDraftAction = CardService.newUpdateDraftActionResponseBuilder()
+        .setUpdateDraftBodyAction(CardService.newUpdateDraftBodyAction()
+          .addUpdateContent(htmlResponse, CardService.ContentType.MUTABLE_HTML)
+          .setUpdateType(CardService.UpdateDraftBodyType.IN_PLACE_INSERT))
+        .build();
+
+      // Gebe Lock frei
+      lock.releaseLock();
+
+      Logger.log('KI-Text erfolgreich eingefügt');
+      return updateDraftAction;
 
     } finally {
       // Stelle sicher, dass Lock immer freigegeben wird
@@ -359,6 +399,28 @@ function generateAIResponse(e) {
       var updateDraftAction = CardService.newUpdateDraftActionResponseBuilder()
         .setUpdateDraftBodyAction(CardService.newUpdateDraftBodyAction()
           .addUpdateContent(' ', CardService.ContentType.MUTABLE_HTML)
+          .setUpdateType(CardService.UpdateDraftBodyType.IN_PLACE_INSERT))
+        .build();
+      return updateDraftAction;
+    }
+
+    // Spezielle Behandlung für fehlenden Inhalt bei neuen E-Mails
+    if (error.message === 'MISSING_CONTENT_NEW_EMAIL') {
+      Logger.log('Neue E-Mail ohne Betreff und Stichpunkte - zeige Hinweis');
+      var errorMessage = '<div style="background-color: #fef7e0; border-left: 4px solid #f4b400; padding: 12px; margin: 8px 0;">' +
+                         '<strong style="color: #c5221f;">⚠️ Inhalt erforderlich</strong><br><br>' +
+                         'Für neue E-Mails wird mindestens eines benötigt:<br>' +
+                         '• Ein aussagekräftiger Betreff (z.B. "Urlaubsantrag Juli")<br>' +
+                         '• Stichpunkte im Dialog<br><br>' +
+                         '<strong>So geht\'s:</strong><br>' +
+                         '1. Gib einen Betreff ein ODER<br>' +
+                         '2. Klicke "✨ KI-Antwort" und gib Stichpunkte ein<br>' +
+                         '3. Beispiel: "Anfrage für Meeting, Termin nächste Woche"' +
+                         '</div>';
+
+      var updateDraftAction = CardService.newUpdateDraftActionResponseBuilder()
+        .setUpdateDraftBodyAction(CardService.newUpdateDraftBodyAction()
+          .addUpdateContent(errorMessage, CardService.ContentType.MUTABLE_HTML)
           .setUpdateType(CardService.UpdateDraftBodyType.IN_PLACE_INSERT))
         .build();
       return updateDraftAction;
@@ -465,6 +527,98 @@ function getAIResponseForMessage(threadHistory, targetMessageId, userNotes) {
     additionalInstructions += 'Beispiel: "Termin am Freitag 14 Uhr zusagen" → "...gerne bestätige ich den Termin am Freitag um 14 Uhr..."';
   }
 
+  var run = runAssistant(apiKey, threadId, assistantId, additionalInstructions);
+
+  // Warte auf Completion (mit Timeout)
+  var runResult = waitForCompletion(apiKey, threadId, run.id, 30);
+
+  if (runResult.status !== 'completed') {
+    throw new Error('Assistant konnte nicht abgeschlossen werden: ' + runResult.status);
+  }
+
+  // Hole die Antwort
+  var messages = getThreadMessages(apiKey, threadId);
+
+  if (messages.data && messages.data.length > 0) {
+    var lastMessage = messages.data[0];
+    if (lastMessage.content && lastMessage.content.length > 0) {
+      return lastMessage.content[0].text.value;
+    }
+  }
+
+  throw new Error('Keine Antwort in den Thread-Nachrichten gefunden');
+}
+
+/**
+ * Generiert KI-Inhalt für NEUE E-Mails (ohne Thread-Historie)
+ * @param {string} recipient - Empfänger-Adresse
+ * @param {string} subject - Betreff der E-Mail
+ * @param {string} userNotes - Stichpunkte/Inhalt vom Benutzer
+ * @return {string} Generierter E-Mail-Text
+ */
+function generateNewEmailContent(recipient, subject, userNotes) {
+  var apiKey = getUserProperty(PROPERTY_API_KEY);
+  var assistantId = getUserProperty(PROPERTY_ASSISTANT_ID);
+
+  if (!apiKey || !assistantId) {
+    throw new Error('API Key oder Assistant ID nicht konfiguriert');
+  }
+
+  Logger.log('Generiere neue E-Mail ohne Thread-Historie');
+
+  // Erstelle Thread bei OpenAI
+  var threadResponse = createOpenAIThread(apiKey);
+  var threadId = threadResponse.id;
+
+  // Baue Kontext für NEUE E-Mail
+  var contextMessage = 'Neue E-Mail schreiben:\n\n';
+  contextMessage += 'Empfänger: ' + (recipient || 'Unbekannt') + '\n';
+  if (subject && subject.trim().length > 0) {
+    contextMessage += 'Betreff der E-Mail: ' + subject + '\n';
+  }
+  contextMessage += '\nBitte erstelle eine vollständige, professionelle E-Mail basierend auf den Inhaltspunkten des Benutzers.';
+
+  // Füge Nachricht zu Thread hinzu
+  addMessageToThread(apiKey, threadId, contextMessage);
+
+  // Baue additional_instructions
+  var additionalInstructions = 'WICHTIGE ANWEISUNGEN FÜR DIE E-MAIL:\n\n';
+
+  var hasNotes = userNotes && userNotes.trim().length > 0;
+  var hasSubject = subject && subject.trim().length > 0;
+
+  if (hasSubject && hasNotes) {
+    // Beides vorhanden: Betreff als Kontext, Stichpunkte als Hauptinhalt
+    additionalInstructions += 'Der Benutzer möchte eine neue E-Mail schreiben:\n';
+    additionalInstructions += '- Betreff: "' + subject + '"\n';
+    additionalInstructions += '- Inhaltspunkte: ' + userNotes + '\n\n';
+    additionalInstructions += 'Nutze den Betreff als thematischen Rahmen und baue die Inhaltspunkte natürlich ein.\n\n';
+  } else if (hasSubject && !hasNotes) {
+    // Nur Betreff: Generiere E-Mail basierend auf Betreff
+    additionalInstructions += 'Der Benutzer möchte eine neue E-Mail schreiben zum Thema:\n';
+    additionalInstructions += '"' + subject + '"\n\n';
+    additionalInstructions += 'Erstelle eine passende E-Mail basierend auf diesem Betreff. ';
+    additionalInstructions += 'Interpretiere den Betreff und erstelle einen sinnvollen, professionellen Inhalt.\n\n';
+  } else if (!hasSubject && hasNotes) {
+    // Nur Stichpunkte: Wie bisher
+    additionalInstructions += 'Der Benutzer möchte eine neue E-Mail schreiben mit folgendem Inhalt:\n\n';
+    additionalInstructions += userNotes + '\n\n';
+  }
+
+  additionalInstructions += 'WICHTIG:\n';
+  additionalInstructions += '- Dies ist eine NEUE E-Mail, keine Antwort auf eine bestehende Nachricht\n';
+  additionalInstructions += '- Erstelle eine VOLLSTÄNDIGE E-Mail mit:\n';
+  additionalInstructions += '  * Angemessener Begrüßung (z.B. "Sehr geehrte/r ...", "Hallo ...")\n';
+  additionalInstructions += '  * Hauptteil basierend auf Betreff/Inhaltspunkten\n';
+  additionalInstructions += '  * Professioneller Grußformel (z.B. "Mit freundlichen Grüßen")\n';
+  additionalInstructions += '- Verwende einen professionellen, angemessenen Ton\n';
+  additionalInstructions += '- KEIN Betreff in der E-Mail selbst (nur im E-Mail-Feld)\n\n';
+  additionalInstructions += 'Beispiele:\n';
+  additionalInstructions += '1) Betreff: "Urlaubsantrag Juli" → Erstelle Urlaubsantrag für Juli\n';
+  additionalInstructions += '2) Betreff: "Meeting-Anfrage" + Notizen: "Termin nächste Woche" → Kombiniere beides\n';
+  additionalInstructions += '3) Nur Notizen: "Anfrage für Meeting" → Erstelle E-Mail aus Notizen';
+
+  // Starte Assistant Run mit Stichpunkten als additional_instructions
   var run = runAssistant(apiKey, threadId, assistantId, additionalInstructions);
 
   // Warte auf Completion (mit Timeout)
