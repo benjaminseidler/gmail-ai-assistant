@@ -161,12 +161,12 @@ function insertAITextToCompose(e) {
   // Performance-Optimierung: Dialog öffnet sich instant ohne Gmail API Calls
   var card = CardService.newCardBuilder();
   card.setHeader(CardService.newCardHeader()
-    .setTitle('KI-Antwort generieren'));
+    .setTitle('KI-Mail generieren'));
 
   var section = CardService.newCardSection();
 
   section.addWidget(CardService.newTextParagraph()
-    .setText('Gib Stichpunkte ein, die in die E-Mail integriert werden sollen. <strong>(Pflicht für neue E-Mails, optional für Antworten)</strong>'));
+    .setText('Beschreibe kurz, was die E-Mail enthalten soll.'));
 
   section.addWidget(CardService.newTextInput()
     .setFieldName('userNotes')
@@ -175,17 +175,17 @@ function insertAITextToCompose(e) {
     .setMultiline(true)
     .setValue(''));
 
-  var buttonSet = CardService.newButtonSet()
+  section.addWidget(CardService.newTextParagraph()
+    .setText('<font color="#5f6368"><i>💡 Tipp: Bei neuen E-Mails entweder Betreff oder Stichpunkte angeben</i></font>'));
+
+  section.addWidget(CardService.newButtonSet()
     .addButton(CardService.newTextButton()
       .setText('✨ Generieren')
       .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
       .setBackgroundColor('#1967d2')
       .setOnClickAction(CardService.newAction()
         .setFunctionName('generateAIResponse')
-        .setLoadIndicator(CardService.LoadIndicator.SPINNER)));
-        // KEINE Parameter mehr - Metadaten werden in generateAIResponse() aus Event geladen
-
-  section.addWidget(buttonSet);
+        .setLoadIndicator(CardService.LoadIndicator.SPINNER))));
   card.addSection(section);
 
   return CardService.newActionResponseBuilder()
