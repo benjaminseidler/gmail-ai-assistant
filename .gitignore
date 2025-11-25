@@ -21,3 +21,4 @@ Thumbs.db
 .env
 .env.local
 2025-11-09-claude-message-export.txt
+*.swp
